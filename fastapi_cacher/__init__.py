@@ -12,7 +12,7 @@ from fastapi_cacher.backends import BaseCache
 from fastapi_cacher.config import CacheConfig
 from fastapi_cacher.utils import key_builder
 
-__all__ = ["Cache", "CacheConfig", "SUPPORTED_CACHE_TYPES"]
+__all__ = ["Cache", "CacheConfig"]
 logger: logging.Logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
 

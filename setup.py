@@ -8,11 +8,11 @@ with open('CHANGELOG.md', 'r') as ch:
 
 setup(
     name="fastapi-cacher",
-    version="0.2.0",
+    version="0.2.1",
     author="Fahad Mawlood",
     author_email="fahadukr@gmail.com",
     description="A caching library for FastAPI",
-    long_description=open("README.md").read(),
+    long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/Fahadukr/fastapi-cacher",
     packages=find_packages(),
