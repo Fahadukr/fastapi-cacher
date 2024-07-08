@@ -1,8 +1,14 @@
 from setuptools import setup, find_packages
 
+with open('README.md', 'r') as fh:
+    long_description = fh.read()
+    long_description = long_description.split('## Changelog')[0]
+with open('CHANGELOG.md', 'r') as ch:
+    long_description += "\n\n" + ch.read()
+
 setup(
     name="fastapi-cacher",
-    version="0.1.0",
+    version="0.2.0",
     author="Fahad Mawlood",
     author_email="fahadukr@gmail.com",
     description="A caching library for FastAPI",
@@ -12,12 +18,17 @@ setup(
     packages=find_packages(),
     install_requires=[
         "fastapi",
-        "redis",  # or any other dependencies
+        "redis",
+        "cachelib",
+        "motor",
+        "pendulum",
+        "pymongo",
+        "aiomcache"
     ],
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
     ],
-    python_requires='>=3.6',
+    python_requires='>=3.10',
 )

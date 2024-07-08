@@ -1,21 +1,20 @@
+import abc
 from typing import Optional, Tuple
 
-from aiomcache import Client
-from fastapi_cacher.types import Backend
 
-
-class MemcachedBackend(Backend):
-    def __init__(self, mcache: Client):
-        self.mcache = mcache
-
+class BaseCache(abc.ABC):
+    @abc.abstractmethod
     async def get_with_ttl(self, key: str) -> Tuple[int, Optional[bytes]]:
-        return 3600, await self.get(key)
+        raise NotImplementedError
 
+    @abc.abstractmethod
     async def get(self, key: str) -> Optional[bytes]:
-        return await self.mcache.get(key.encode())
+        raise NotImplementedError
 
+    @abc.abstractmethod
     async def set(self, key: str, value: bytes, expire: Optional[int] = None) -> None:
-        await self.mcache.set(key.encode(), value, exptime=expire or 0)
+        raise NotImplementedError
 
+    @abc.abstractmethod
     async def clear(self, namespace: Optional[str] = None, key: Optional[str] = None) -> int:
         raise NotImplementedError

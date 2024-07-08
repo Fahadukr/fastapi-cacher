@@ -1,111 +1,195 @@
-from typing import ClassVar, Optional, Type
+import inspect
+import logging
+import warnings
+from functools import wraps
+from inspect import iscoroutinefunction
+from typing import Callable, Any
 
-# Because this project supports python 3.7 and up, Pyright treats importlib as
-# an external library and so needs to be told to ignore the type issues it sees.
-try:
-    # Python 3.8+
-    from importlib.metadata import version  # type: ignore
-except ImportError:
-    # Python 3.7
-    from importlib_metadata import version  # type: ignore
+from fastapi import HTTPException, Response, Request
+from fastapi.concurrency import run_in_threadpool
+from fastapi.dependencies.utils import get_typed_return_annotation
+from fastapi_cacher.backends import BaseCache
+from fastapi_cacher.config import CacheConfig
+from fastapi_cacher.utils import key_builder
 
-from fastapi_cacher.coder import Coder, JsonCoder
-from fastapi_cacher.key_builder import default_key_builder
-from fastapi_cacher.types import Backend, KeyBuilder
-
-__version__ = version("fastapi-cache2")  # pyright: ignore[reportUnknownVariableType]
-__all__ = [
-    "Backend",
-    "Coder",
-    "FastAPICache",
-    "JsonCoder",
-    "KeyBuilder",
-    "default_key_builder",
-]
+__all__ = ["Cache", "CacheConfig", "SUPPORTED_CACHE_TYPES"]
+logger: logging.Logger = logging.getLogger(__name__)
+logger.addHandler(logging.NullHandler())
 
 
-class FastAPICache:
-    _backend: ClassVar[Optional[Backend]] = None
-    _prefix: ClassVar[Optional[str]] = None
-    _expire: ClassVar[Optional[int]] = None
-    _init: ClassVar[bool] = False
-    _coder: ClassVar[Optional[Type[Coder]]] = None
-    _key_builder: ClassVar[Optional[KeyBuilder]] = None
-    _cache_status_header: ClassVar[Optional[str]] = None
-    _enable: ClassVar[bool] = True
+def _get_request_and_response(func: Callable, args: tuple, kwargs: dict) -> tuple:
+    sig = inspect.signature(func)
+    params = sig.parameters
 
-    @classmethod
-    def init(
-            cls,
-            backend: Backend,
-            prefix: str = "",
-            expire: Optional[int] = None,
-            coder: Type[Coder] = JsonCoder,
-            key_builder: KeyBuilder = default_key_builder,
-            cache_status_header: str = "X-FastAPI-Cache",
-            enable: bool = True,
-    ) -> None:
-        if cls._init:
-            return
-        cls._init = True
-        cls._backend = backend
-        cls._prefix = prefix
-        cls._expire = expire
-        cls._coder = coder
-        cls._key_builder = key_builder
-        cls._cache_status_header = cache_status_header
-        cls._enable = enable
+    request = None
+    response = None
+    request_param_name = None
+    response_param_name = None
 
-    @classmethod
-    def reset(cls) -> None:
-        cls._init = False
-        cls._backend = None
-        cls._prefix = None
-        cls._expire = None
-        cls._coder = None
-        cls._key_builder = None
-        cls._cache_status_header = None
-        cls._enable = True
+    # Match positional arguments with their names in the function signature
+    for name, arg in zip(params.keys(), args):
+        if isinstance(arg, Request):
+            request = arg
+            request_param_name = name
+        elif isinstance(arg, Response):
+            response = arg
+            response_param_name = name
 
-    @classmethod
-    def get_backend(cls) -> Backend:
-        assert cls._backend, "You must call init first!"  # noqa: S101
-        return cls._backend
+    # If request/response not found in args, look in kwargs
+    if not request or not response:
+        for name, kwarg in kwargs.items():
+            if isinstance(kwarg, Request):
+                request = kwarg
+                request_param_name = name
+            elif isinstance(kwarg, Response):
+                response = kwarg
+                response_param_name = name
 
-    @classmethod
-    def get_prefix(cls) -> str:
-        assert cls._prefix is not None, "You must call init first!"  # noqa: S101
-        return cls._prefix
+    return request, response, request_param_name, response_param_name
 
-    @classmethod
-    def get_expire(cls) -> Optional[int]:
-        return cls._expire
 
-    @classmethod
-    def get_coder(cls) -> Type[Coder]:
-        assert cls._coder, "You must call init first!"  # noqa: S101
-        return cls._coder
+class Cache:
+    def __init__(self, config: CacheConfig = CacheConfig()) -> None:
+        self._config = config
+        self._coder = self._config.coder
+        self._backend_cache = self._get_cache_backend()
 
-    @classmethod
-    def get_key_builder(cls) -> KeyBuilder:
-        assert cls._key_builder, "You must call init first!"  # noqa: S101
-        return cls._key_builder
+    def _get_cache_backend(self) -> BaseCache:
+        cache_type = self._config.cache_type
+        if cache_type == 'SimpleCache':
+            warnings.warn("SimpleCache is not recommended for production environment with multiple workers.")
+            from fastapi_cacher.backends import SimpleCache
+            return SimpleCache(
+                threshold=self._config.simple_cache_threshold,
+                default_timeout=self._config.default_timeout
+            )
 
-    @classmethod
-    def get_cache_status_header(cls) -> str:
-        assert cls._cache_status_header, "You must call init first!"  # noqa: S101
-        return cls._cache_status_header
+        if cache_type == 'RedisCache':
+            from fastapi_cacher.backends import RedisCache
+            return RedisCache(
+                url=self._config.redis_url,
+                host=self._config.redis_host,
+                port=self._config.redis_port,
+                password=self._config.redis_password,
+                db=self._config.redis_db,
+                app_space=self._config.app_space,
+                default_timeout=self._config.default_timeout
+            )
 
-    @classmethod
-    def get_enable(cls) -> bool:
-        return cls._enable
+        if cache_type == 'MongoCache':
+            from fastapi_cacher.backends import MongoCache
+            return MongoCache(
+                url=self._config.mongo_url,
+                database=self._config.mongo_database,
+                collection=self._config.mongo_collection,
+                direct_connection=self._config.mongo_direct_connection,
+                app_space=self._config.app_space,
+                default_timeout=self._config.default_timeout
+            )
 
-    @classmethod
-    async def clear(
-            cls, namespace: Optional[str] = None, key: Optional[str] = None
-    ) -> int:
-        assert (  # noqa: S101
-                cls._backend and cls._prefix is not None
-        ), "You must call init first!"
-        namespace = cls._prefix + (":" + namespace if namespace else "")
-        return await cls._backend.clear(namespace, key)
+        if cache_type == 'MemCache':
+            from fastapi_cacher.backends import MemCache
+            return MemCache(
+                host=self._config.memcache_host,
+                port=self._config.memcache_port,
+                threshold=self._config.memcache_threshold,
+                default_timeout=self._config.default_timeout
+            )
+
+    def cached(self,
+               timeout: int = None,
+               namespace: str = "",
+               query_params: bool = True,
+               json_body: bool = False,
+               require_auth_header: bool = False) -> Callable[[Callable], Callable]:
+
+        def decorator(func: Callable):
+            @wraps(func)
+            async def wrapper(*args, **kwargs):
+                async def ensure_async_func(*func_args, **func_kwargs) -> Any:
+                    """Run cached sync functions in thread pool just like FastAPI."""
+                    if iscoroutinefunction(func):
+                        # async, return as is.
+                        return await func(*func_args, **func_kwargs)
+                    else:
+                        # sync, wrap in thread and return async
+                        return await run_in_threadpool(func, *func_args, **func_kwargs)  # type: ignore[arg-type]
+
+                request, response, request_param_name, response_param_name = _get_request_and_response(
+                    func=func,
+                    args=args,
+                    kwargs=kwargs
+                )
+
+                if request and request.method != 'GET':
+                    raise Exception("Cached decorator can only be used with GET requests.")
+
+                return_type = get_typed_return_annotation(func)
+                auth_header = ""
+                if require_auth_header:
+                    auth_header = request.headers.get("Authorization")
+                    if not auth_header:
+                        raise HTTPException(status_code=401, detail="Not authorized.")
+
+                key = await key_builder(
+                    func,
+                    auth_header=auth_header,
+                    app_space=self._config.app_space,
+                    namespace=namespace,
+                    request=request,
+                    args=args,
+                    kwargs=kwargs,
+                    request_param_name=request_param_name,
+                    response_param_name=response_param_name,
+                    query_params=query_params,
+                    json_body=json_body
+                )
+                try:
+                    ttl, cached_result = await self._backend_cache.get_with_ttl(key)
+                except Exception as e:
+                    logger.warning(
+                        f"Error retrieving cache key '{key}' from backend: {e}",
+                        exc_info=True,
+                    )
+                    ttl, cached_result = 0, None
+
+                if cached_result is not None:  # cache hit
+                    result = self._coder.decode_as_type(cached_result, type_=return_type)
+                    if response:
+                        response.headers['X-Cache-Hit'] = 'true'
+                        response.headers['X-Cache-Key'] = key
+                        response.headers['X-Cache-TTL'] = str(ttl)
+
+                else:  # cache miss
+                    result = await ensure_async_func(*args, **kwargs)
+                    result_encoded = self._coder.encode(result)
+                    try:
+                        await self._backend_cache.set(key, result_encoded, expire=timeout)
+                    except Exception as e:
+                        logger.warning(
+                            f"Error setting cache key '{key}' in backend: {e}",
+                            exc_info=True,
+                        )
+                    if response:
+                        response.headers['X-Cache-Hit'] = 'false'
+                        response.headers['X-Cache-Key'] = key
+                        response.headers['X-Cache-TTL'] = str(timeout or self._config.default_timeout)
+                return result
+
+            return wrapper
+
+        return decorator
+
+    async def get_with_ttl(self, key: str) -> tuple[int, bytes | None]:
+        return await self._backend_cache.get_with_ttl(key)
+
+    async def get(self, key: str) -> bytes | None:
+        return await self._backend_cache.get(key)
+
+    async def set(self, key: str, value: bytes, expire: int = None) -> None:
+        await self._backend_cache.set(key, value, expire)
+
+    async def clear(self, namespace: str = None, key: str = None) -> int:
+        if self._config.cache_type == 'MemCache':
+            return await self._backend_cache.clear(key)
+        return await self._backend_cache.clear(namespace, key)

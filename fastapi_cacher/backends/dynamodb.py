@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, Optional, Tuple
 
 from aiobotocore.client import AioBaseClient
 from aiobotocore.session import AioSession, get_session
-from fastapi_cacher.types import Backend
+from fastapi_cacher.base import BaseCache
 
 if TYPE_CHECKING:
     from types_aiobotocore_dynamodb import DynamoDBClient
@@ -11,7 +11,7 @@ else:
     DynamoDBClient = AioBaseClient
 
 
-class DynamoBackend(Backend):
+class DynamoCache(BaseCache):
     """
     Amazon DynamoDB backend provider
 
@@ -24,7 +24,7 @@ class DynamoBackend(Backend):
     for more information.
 
     Usage:
-        >> dynamodb = DynamoBackend(table_name="your-cache", region="eu-west-1")
+        >> dynamodb = DynamoCache(table_name="your-cache", region="eu-west-1")
         >> await dynamodb.init()
         >> FastAPICache.init(dynamodb)
     """
