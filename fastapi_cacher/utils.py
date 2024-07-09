@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 from typing import Any, Callable, Dict, Optional, Tuple
 
@@ -34,9 +35,13 @@ async def key_builder(
                     if json_body:
                         request_details += str(json_body)
             except Exception as e:
-                print('Error reading JSON body:', e)
+                print('Error reading JSON body for cache:', e)
 
     key_str = f"{func.__name__}:{auth_header}:{args}:{sorted_kwargs}:{request_details}"
     key_hash = hashlib.md5(key_str.encode()).hexdigest()
     key = f"{app_space}:{namespace}:{key_hash}"
     return key
+
+
+def run_coro_in_background(coro):
+    asyncio.create_task(coro)

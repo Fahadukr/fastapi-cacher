@@ -1,14 +1,14 @@
 # FastAPI-Cacher
 
-FastAPI-Cacher is a caching library inspired by Flask-Caching, designed specifically for FastAPI. It provides an
-easy-to-use decorator-based approach for adding caching to FastAPI endpoints, making it simple and intuitive.
+An intuitive caching library for FastAPI inspired by Flask-Caching.
+It uses decorators for easy endpoint caching, supports both **absolute** and **sliding window expiration** mechanisms.
 
 ## Installation
 
-To install FastAPI-Cacher, use pip:
+Install and update using pip
 
 ```bash
-pip install fastapi-cacher
+pip install -U fastapi-cacher
 ```
 
 ## Cache Types
@@ -50,8 +50,6 @@ from fastapi_cacher import CacheConfig
 cache_config = CacheConfig(
   cache_type="SimpleCache",
   simple_cache_threshold=100,  # Default: 100 (number of items to store in cache, before deleting the oldest)
-  app_space="your_app_namespace",  # Default: "fastapi-cacher"  (keys are prefixed with this value)
-  default_timeout=300  # Default: 300 (default timeout in seconds if not specified in decorator)
 )
 
 # For RedisCache
@@ -62,7 +60,6 @@ cache_config = CacheConfig(
   redis_port=6379,  # Default: 6379
   redis_password="your_redis_password",
   redis_db=0,  # Default: 0
-  app_space="your_app_namespace"
 )
 
 # For MongoCache
@@ -71,8 +68,7 @@ cache_config = CacheConfig(
   mongo_url="mongodb://user:password@localhost:27017",
   mongo_database="fastapi_cache",
   mongo_collection="your_cache_collection",  # Default: "cache"
-  mongo_direct_connection=False,  # Default: False
-  app_space="your_app_namespace"
+  mongo_direct_connection=False  # Default: False
 )
 
 # For MemCache
@@ -80,8 +76,28 @@ cache_config = CacheConfig(
   cache_type="MemCache",
   memcache_host="your_memcache_host",  # Default: ""
   memcache_port=11211,  # Default: 11211
-  memcache_threshold=100,  # Default: 100 (number of items to store in cache, before deleting the oldest)
-  app_space="your_app_namespace"
+  memcache_threshold=100  # Default: 100 (number of items to store in cache, before deleting the oldest)
+)
+```
+
+## Generic CacheConfig Attributes with Defaults:
+
+- `cache_type` (str) = `SimpleCache`: Sets the caching strategy (e.g., SimpleCache, RedisCache).
+- `default_timeout` (int) = `300`: Default timeout in seconds if not specified in decorator.
+- `app_space` (str) = `fastapi-cacher`: Namespace prefix for cache keys to avoid conflicts.
+- `coder` (Coder) = `JsonCoder`: Serialization coder for caching.
+- `sliding_expiration` (bool) = `False`: Sets the caching mechanism globally, if True, the expiration time will be reset
+  on every access **(overwritten by the decorator if specified there)**.
+- Time Constants (`ONE_HOUR`, `ONE_DAY`, etc.): Predefined time intervals in seconds for easy setup of expiration times.
+
+### Example:
+
+```python
+cache_config = CacheConfig(
+  cache_type="SimpleCache",
+  default_timeout=600,
+  app_space="my_app",
+  sliding_expiration=True
 )
 ```
 
@@ -107,7 +123,12 @@ cache = Cache(config=cache_config)
 
 
 @app.get("/item/{item_id}")
-@cache.cached(timeout=300, namespace="item_detail", query_params=True, json_body=False, require_auth_header=False)
+@cache.cached(timeout=300,
+              sliding_expiration=False,
+              namespace="item_detail",
+              query_params=True,
+              json_body=False,
+              require_auth_header=False)
 async def get_item(request: Request, response: Response, item_id: int):
   """
   request parameter is required in the function signature for the cache to work.
@@ -131,16 +152,26 @@ async def get_items(request: Request, response: Response):
   return {"id": 1, "name": "Item Name"}
 ```
 
-### `cache.cached` decorator arguments:
+### `cache.cached` decorator arguments with defaults:
 
-- `timeout`: Timeout in seconds. Set to `0` to never expire. If not specified, the default timeout
+- `timeout` (int) = `None`: Timeout in seconds. Set to `0` to never expire. If not specified, the default timeout
   from the cache config is used. A pre-calculated values in the cache_config can be used, e.g.,
   `cache_config.ONE_HOUR`, `cache_config.ONE_DAY`, etc.
-- `namespace`: Allows scoping of cache keys. Default: "".
-- `query_params`: Consider URL query parameters for caching. Default: True.
-- `json_body`: Include requests JSON body in the cache string key. Default: False.
-- `require_auth_header`: Include the Authorization header in the cache string key. Default: False.
+- `sliding_expiration` (bool) = `None`: If True, the expiration time will be reset on every access. If set, it
+  overwrites the cache_config setting.
+- `namespace` (str) = `""`: Allows scoping of cache keys.
+- `query_params` (book) = `True`: Consider URL query parameters for caching.
+- `json_body` = `False`: Include requests JSON body in the cache string key.
+- `require_auth_header` = `False`: Include the Authorization header in the cache string key.
   If set to True, the Authorization header is required in the request and if not present - Raises `HTTPException(401)`.
+
+## More about the sliding expiration mechanism:
+
+The sliding expiration mechanism resets the expiration time of a cached item each time it is accessed. This means the
+item will only be deleted if it is not accessed for the specified timeout period.
+
+- Global Setting: Set in `CacheConfig` to apply by default to all endpoints.
+- Individual Setting: Can be overridden in the `cache.cached` decorator for specific endpoints.
 
 ### Clearing the Cache
 

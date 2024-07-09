@@ -11,6 +11,7 @@ class CacheConfig(BaseModel):
     default_timeout: int = 300
     app_space: str = "fastapi-cacher"
     coder: Coder = JsonCoder
+    sliding_expiration: bool = False  # if True, the expiration time will be reset on every access
     ONE_HOUR: Final[int] = 3600
     ONE_DAY: Final[int] = ONE_HOUR * 24
     ONE_WEEK: Final[int] = ONE_DAY * 7

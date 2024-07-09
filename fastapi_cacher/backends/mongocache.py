@@ -71,7 +71,7 @@ class MongoCache(BaseCache):
                 return -1, value
 
             # Check the TTL ourselves
-            expire = int(ttl.timestamp()) - int(datetime.datetime.now().timestamp())
+            expire = int(ttl.timestamp()) - int(datetime.datetime.utcnow().timestamp())
             if expire > 0:
                 return expire, value
 

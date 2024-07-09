@@ -10,7 +10,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.dependencies.utils import get_typed_return_annotation
 from fastapi_cacher.backends import BaseCache
 from fastapi_cacher.config import CacheConfig
-from fastapi_cacher.utils import key_builder
+from fastapi_cacher.utils import key_builder, run_coro_in_background
 
 __all__ = ["Cache", "CacheConfig"]
 logger: logging.Logger = logging.getLogger(__name__)
@@ -96,8 +96,29 @@ class Cache:
                 default_timeout=self._config.default_timeout
             )
 
+    async def _cache_result(self, result_encoded, key, timeout) -> None:
+        try:
+            await self.set(key, result_encoded, timeout)
+        except Exception as e:
+            logger.warning(
+                f"Error setting cache key '{key}' in backend: {e}",
+                exc_info=True,
+            )
+
+    def _get_is_sliding_expiration(self, endpoint_sliding_expiration: bool | None) -> bool:
+        """
+        sliding window expiration mechanism resets the expiration time on every access to the cache key,
+        this means that the cache key will only expire if it is not accessed for the duration of the timeout.
+
+        * sliding_expiration at the endpoint level takes precedence over the global config.
+        """
+        if endpoint_sliding_expiration is None and self._config.sliding_expiration:
+            return True
+        return endpoint_sliding_expiration or False
+
     def cached(self,
                timeout: int = None,
+               sliding_expiration: bool = None,
                namespace: str = "",
                query_params: bool = True,
                json_body: bool = False,
@@ -114,6 +135,8 @@ class Cache:
                     else:
                         # sync, wrap in thread and return async
                         return await run_in_threadpool(func, *func_args, **func_kwargs)  # type: ignore[arg-type]
+
+                is_sliding_expiration = self._get_is_sliding_expiration(sliding_expiration)
 
                 request, response, request_param_name, response_param_name = _get_request_and_response(
                     func=func,
@@ -145,7 +168,7 @@ class Cache:
                     json_body=json_body
                 )
                 try:
-                    ttl, cached_result = await self._backend_cache.get_with_ttl(key)
+                    ttl, cached_result = await self.get_with_ttl(key)
                 except Exception as e:
                     logger.warning(
                         f"Error retrieving cache key '{key}' from backend: {e}",
@@ -155,6 +178,12 @@ class Cache:
 
                 if cached_result is not None:  # cache hit
                     result = self._coder.decode_as_type(cached_result, type_=return_type)
+                    if is_sliding_expiration:
+                        run_coro_in_background(self._cache_result(
+                            result_encoded=cached_result,
+                            key=key,
+                            timeout=timeout or self._config.default_timeout
+                        ))
                     if response:
                         response.headers['X-Cache-Hit'] = 'true'
                         response.headers['X-Cache-Key'] = key
@@ -163,13 +192,11 @@ class Cache:
                 else:  # cache miss
                     result = await ensure_async_func(*args, **kwargs)
                     result_encoded = self._coder.encode(result)
-                    try:
-                        await self._backend_cache.set(key, result_encoded, expire=timeout)
-                    except Exception as e:
-                        logger.warning(
-                            f"Error setting cache key '{key}' in backend: {e}",
-                            exc_info=True,
-                        )
+                    run_coro_in_background(self._cache_result(
+                        result_encoded=result_encoded,
+                        key=key,
+                        timeout=timeout or self._config.default_timeout
+                    ))
                     if response:
                         response.headers['X-Cache-Hit'] = 'false'
                         response.headers['X-Cache-Key'] = key

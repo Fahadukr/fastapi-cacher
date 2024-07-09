@@ -58,19 +58,15 @@ class SimpleCache(BaseCache):
         return None
 
     async def get_with_ttl(self, key: str) -> Tuple[int, Optional[bytes]]:
-        print("get_with_ttl in simple cache:", key)
         async with self._lock:
             v = await self._get(key)
-            print("v in simple cache with ttl:", v)
             if v:
                 return v.ttl_ts - self._now, v.data
             return 0, None
 
     async def get(self, key: str) -> Optional[bytes]:
-        print("get in simple cache:", key)
         async with self._lock:
             v = await self._get(key)
-            print("v in simple cache:", v)
             if v:
                 return v.data
             return None
@@ -84,7 +80,6 @@ class SimpleCache(BaseCache):
             value (bytes): The data to store.
             expire (Optional[int]): The expiration time in seconds; uses default timeout if not specified.
         """
-        print("set in simple cache:", key, value, expire)
         async with self._lock:
             if len(self._store) >= self._threshold:
                 self._store.popitem(last=False)  # Remove oldest item - Least Recently Used (LRU)

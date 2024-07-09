@@ -8,7 +8,7 @@ with open('CHANGELOG.md', 'r') as ch:
 
 setup(
     name="fastapi-cacher",
-    version="0.2.1",
+    version="0.3.0",
     author="Fahad Mawlood",
     author_email="fahadukr@gmail.com",
     description="A caching library for FastAPI",

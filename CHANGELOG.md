@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.0] - 2024-07-10:
+
+### Added
+
+- Support for sliding window expiration mechanism.
+
 ## [0.2.0] - 2024-07-08:
 
 ### Added
