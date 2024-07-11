@@ -107,10 +107,7 @@ class Cache:
 
     def _get_is_sliding_expiration(self, endpoint_sliding_expiration: bool | None) -> bool:
         """
-        sliding window expiration mechanism resets the expiration time on every access to the cache key,
-        this means that the cache key will only expire if it is not accessed for the duration of the timeout.
-
-        * sliding_expiration at the endpoint level takes precedence over the global config.
+        Check if the endpoint has sliding expiration enabled, if yes, return its value over the global config.
         """
         if endpoint_sliding_expiration is None and self._config.sliding_expiration:
             return True
@@ -123,6 +120,26 @@ class Cache:
                query_params: bool = True,
                json_body: bool = False,
                require_auth_header: bool = False) -> Callable[[Callable], Callable]:
+        """
+        Decorator to cache the result of a function.
+        :param timeout : Timeout in seconds (int).
+                  Set to `0` to never expire. If not specified, the default timeout from the cache config is used.
+                  A pre-calculated values in the cache_config can be used, e.g., `cache_config.ONE_HOUR`,
+                  `cache_config.ONE_DAY`, etc.
+        :param sliding_expiration : Enable sliding expiration for the cache key (bool).
+                  sliding window expiration mechanism resets the expiration time on every access
+                  to the cache key, this means that the cache key will only expire if it is not accessed
+                  for the duration of the timeout.
+
+                  * sliding_expiration at the endpoint level takes precedence over the global config.
+
+        :param namespace: Namespace for the cache keys.
+        :param query_params: Include query parameters in the cache key.
+        :param json_body: Include the request JSON body in the cache key.
+        :param require_auth_header: Include the Authorization header in the cache string key.
+                  If set to True, the Authorization header is required in the request
+                  and if not present - Raises `HTTPException(401)`.
+        """
 
         def decorator(func: Callable):
             @wraps(func)

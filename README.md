@@ -113,11 +113,14 @@ from fastapi import FastAPI, Request, Response
 from fastapi_cacher import Cache, CacheConfig
 
 app = FastAPI()
-# Configuring RedisCache; for settings of other cache types, see the CacheConfig section above.
+# Configuring with RedisCache; for settings of other cache types, see the CacheConfig section above.
 cache_config = CacheConfig(
-  cache_type="RedisCache",
-  redis_host="your_redis_host",
-  redis_password="your_redis_password",
+    cache_type="RedisCache",
+    redis_host="your_redis_host",
+    redis_password="your_redis_password",
+    default_timeout=600,  # default if not specified in the decorator
+    app_space="fastapi-cacher",
+    sliding_expiration=False
 )
 cache = Cache(config=cache_config)
 
@@ -130,26 +133,26 @@ cache = Cache(config=cache_config)
               json_body=False,
               require_auth_header=False)
 async def get_item(request: Request, response: Response, item_id: int):
-  """
-  request parameter is required in the function signature for the cache to work.
-  request and response parameters can be named differently:
-  async def get_item(req: Request, resp: Response, item_id: int):
-  """
-  await sleep(3)
-  return {"id": item_id, "name": "Item Name"}
+    """
+    request parameter is required in the function signature for the cache to work.
+    request and response parameters can be named differently:
+    async def get_item(req: Request, resp: Response, item_id: int):
+    """
+    await sleep(3)
+    return {"id": item_id, "name": "Item Name"}
 
 
 @app.get("/items/")
 @cache.cached(timeout=cache_config.ONE_HOUR,
               namespace="item_detail")
 async def get_items(request: Request, response: Response):
-  """
-  request parameter is required in the function signature for the cache to work.
-  request and response parameters can be named differently:
-  async def get_item(req: Request, resp: Response, item_id: int):
-  """
-  await sleep(3)
-  return {"id": 1, "name": "Item Name"}
+    """
+    request parameter is required in the function signature for the cache to work.
+    request and response parameters can be named differently:
+    async def get_item(req: Request, resp: Response, item_id: int):
+    """
+    await sleep(3)
+    return {"id": 1, "name": "Item Name"}
 ```
 
 ### `cache.cached` decorator arguments with defaults:
@@ -180,18 +183,18 @@ item will only be deleted if it is not accessed for the specified timeout period
 ```python
 @app.post('/clear-cache/')
 async def clear_cache(namespace: str = None, key: str = None):
-  """
-  Clears the cache.
-
-  - `namespace`: Optional. The namespace of the cache to clear.
-  - `key`: Optional. The specific key within the namespace to clear.
-
-  If no parameters are provided, the entire cache will be cleared.
-  example:
-  http://domain/clear-cache/?namespace=test&key=specific-key
-  """
-  await cache.clear(namespace=namespace, key=key)
-  return "Cache cleared!"
+    """
+    Clears the cache.
+  
+    - `namespace`: Optional. The namespace of the cache to clear.
+    - `key`: Optional. The specific key within the namespace to clear.
+  
+    If no parameters are provided, the entire cache will be cleared.
+    example:
+    http://domain/clear-cache/?namespace=test&key=specific-key
+    """
+    await cache.clear(namespace=namespace, key=key)
+    return "Cache cleared!"
 ```
 
 ### Other `cache` methods:
